@@ -1,0 +1,10 @@
+{
+  "name": "LilyGo-EPD47",
+  "version": "1.1.0",
+  "description": "LilyGo T5 4.7\" e-paper driver (from Xinyuan-LilyGO/LilyGo-EPD47, branch esp32s3) - only the display driver, fonts helper and zlib",
+  "repository": { "type": "git", "url": "https://github.com/Xinyuan-LilyGO/LilyGo-EPD47.git" },
+  "license": "GPL-3.0",
+  "frameworks": "arduino",
+  "platforms": "espressif32",
+  "headers": "epd_driver.h"
+}
