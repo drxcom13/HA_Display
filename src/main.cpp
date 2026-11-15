@@ -86,6 +86,7 @@ struct TileCfg {
 };
 static const TileCfg TILE_CFG[] = {
     {"light.light_garage_entrance_sonoff_light", "Światło garaż"},
+    {"light.light_main_entrance_sonoff_light", "Światło wejścia"},
 };
 
 // Battery

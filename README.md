@@ -80,6 +80,14 @@ Parametry (`STALE_AFTER_S`, `WIFI_RESTART_AFTER_MS`, `RETRY_INTERVALS_MS`, `WDT_
 - [x] Ostatnie dane zapisywane we flashu (NVS) i pokazywane po restarcie.
 - [x] Restart po 30 min bez WiFi oraz watchdog.
 
+### Bateria
+
+- Napięcie jest mierzone co minutę na GPIO14 (dzielnik 1:2, na czas pomiaru włączane jest zasilanie ekranu POWER_EN) i uśredniane. Procent wynika z krzywej rozładowania ogniwa Li-ion: 4,20 V = 100%, 3,70 V ≈ 28%, 3,30 V = 0%.
+- **Na ekranie:** procent i ikona baterii w prawym górnym rogu, na obu ekranach. Wskaźnik odświeża się dopiero przy zmianie o co najmniej 2%, żeby e-papier nie migał.
+- **Słaba bateria (≤15%, `BATT_LOW_PCT`):** procent jest pogrubiony, a linia statusu zaczyna się od „Słaba bateria!”.
+- **Home Assistant:** co 5 min urządzenie wysyła encję `sensor.ha_display_battery` (procent, `device_class: battery`, atrybut `voltage`). Encja istnieje, dopóki wyświetlacz ją wysyła. Po restarcie HA pojawi się ponownie po najbliższym raporcie.
+- Przy zasilaniu z USB odczyt pokazuje napięcie ładowania, czyli zwykle 95–100%.
+
 ### Dwa ekrany i sterowanie (dotyk)
 
 Ekrany przełącza się ikoną w prawym górnym rogu:
