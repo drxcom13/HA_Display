@@ -34,17 +34,17 @@ Biblioteki SensorLib (dotyk) i ArduinoJson pobiera PlatformIO z `lib_deps`.
 **Ekran (960×540):** duży zegar z NTP, dzień tygodnia i data po polsku, linia pogody, 3 najbliższe wydarzenia i linia statusu.
 Raz na godzinę (o pełnej godzinie) ekran jest odświeżany w całości, żeby usunąć ghosting. Poza tym odświeżane są tylko te pola, które się zmieniły.
 
-**Home Assistant (http://homeassistant.local, port 80):**
+**Home Assistant (http://192.168.1.10:8123):**
 
 | Encja | Źródło |
 |---|---|
-| `input_text.desk_calendar_line_1..3` | automatyzacja *EPD: aktualizuj linie wyświetlacza* (calendar.get_events z `calendar.kalendarz`, 14 dni) |
-| `input_text.desk_weather_line` | ta sama automatyzacja, Met.no `weather.met_no_53_1235_18_0084` |
+| `input_text.desk_calendar_line_1..3` | automatyzacja *EPD: aktualizuj linie wyświetlacza* (calendar.get_events z `calendar.xmain` – Kalendarz Google przez Remote Calendar / iCal, 14 dni) |
+| `input_text.desk_weather_line` | ta sama automatyzacja, Met.no `weather.forecast_homeonpc` |
 | `sensor.desk_clock_line` | pomocnik szablonowy; firmware używa go tylko, dopóki nie zsynchronizuje czasu z NTP |
 
 Automatyzacje w HA:
 - *EPD: aktualizuj linie wyświetlacza*: przy starcie HA i co 15 min.
-- *EPD: odśwież kalendarz Outlook co 15 min*: Remote Calendar domyślnie pobiera dane co 24 h.
+- *EPD: odśwież kalendarz co 15 min*: Remote Calendar domyślnie pobiera dane co 24 h.
 
 Firmware odpytuje HA co 5 min. Przy błędzie zostawia ostatnie poprawne dane, a błąd pokazuje w linii statusu.
 
@@ -85,7 +85,7 @@ Parametry (`STALE_AFTER_S`, `WIFI_RESTART_AFTER_MS`, `RETRY_INTERVALS_MS`, `WDT_
 Ekrany przełącza się ikoną w prawym górnym rogu:
 - **Ekran 1 – informacje:** zegar, data, pogoda, wydarzenia i status. Ikona z czterema kwadratami przenosi na ekran 2. Stuknięcie w dowolne inne miejsce pobiera od razu dane z HA i odświeża cały ekran.
 - **Ekran 2 – sterowanie:** kafelki 4×3 (maks. 12, każdy 216×134 px), a ikona kalendarza wraca na ekran 1. Stuknięcie w kafelek przełącza encję (`homeassistant.toggle`). Stuknięcie poza kafelkami odświeża ich stany.
-  - Nazwa kafelka jest pisana zwykłą czcionką, a dłuższa przechodzi do drugiej linii. Kafelek włączony ma szare tło, grubą ramkę i pogrubiony napis „włączone”. Wyłączony ma cienką ramkę i napis „wyłączone”.
+  - Nazwa kafelka jest pisana zwykłą czcionką, a dłuższa przechodzi do drugiej linii. Kafelek włączony ma szare tło, grubą ramkę i pogrubiony napis **ON**. Wyłączony ma cienką ramkę i zwykły napis OFF.
   - Gdy stanu nie da się odczytać, tekst jest szary, a kafelek pokazuje ostatni znany stan albo „niedostępne”.
   - Stany są odczytywane przy wejściu na ekran 2 i potem co 5 s (`TILE_POLL_MS`). Po przełączeniu ekran zmienia się od razu, a po 1,5 s stan jest potwierdzany odczytem z HA.
   - Bez dotyku przez 60 s (`SCREEN2_TIMEOUT_MS`) wyświetlacz wraca na ekran 1.
@@ -93,7 +93,7 @@ Ekrany przełącza się ikoną w prawym górnym rogu:
 **Kafelki konfiguruje się w tablicy `TILE_CFG`** na początku `src/main.cpp`. Każda encja obsługująca przełączanie (light, switch, fan, input_boolean…) to jedna linia:
 ```cpp
 static const TileCfg TILE_CFG[] = {
-    {"light.light_garage_entrance_sonoff_light_garage_entrance_sonoff_light", "Światło garaż"},
+    {"light.light_garage_entrance_sonoff_light", "Światło garaż"},
     // {"switch.brama", "Brama"},
 };
 ```

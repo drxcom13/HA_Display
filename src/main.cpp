@@ -18,7 +18,7 @@
  *   +-------------+ +-------------+ +-------------+ +-------------+
  *   | Światło     | |             | |             | |             |
  *   | garaż       | |             | |             | |             |
- *   | włączone    | |             | |             | |             |
+ *   | ON          | |             | |             | |             |
  *   +-------------+ +-------------+ +-------------+ +-------------+
  *   (3 rows)
  *   Tap a tile -> homeassistant.toggle. Tiles are configured in TILE_CFG.
@@ -82,7 +82,7 @@ struct TileCfg {
     const char *label;
 };
 static const TileCfg TILE_CFG[] = {
-    {"light.light_garage_entrance_sonoff_light_garage_entrance_sonoff_light", "Światło garaż"},
+    {"light.light_garage_entrance_sonoff_light", "Światło garaż"},
 };
 
 static const char *TZ_INFO = "CET-1CEST,M3.5.0,M10.5.0/3";      // Europe/Warsaw
@@ -350,8 +350,8 @@ static void drawTile(int i, bool clearFirst)
     String st;
     const GFXfont *f = &PlSans;
     if (t.note.length()) st = t.note;
-    else if (on) { st = "włączone"; f = &PlSansBold; }
-    else if (known) st = "wyłączone";
+    else if (on) { st = "ON"; f = &PlSansBold; }
+    else if (known) st = "OFF";
     else st = "niedostępne";
     drawText(f, fitText(f, st, inner), r.x + pad, r.y + r.height - 16, gray && t.note.length() == 0);
 
