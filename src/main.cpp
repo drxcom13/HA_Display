@@ -30,6 +30,9 @@
  *   sensor.desk_clock_line              - fallback clock, used only until NTP time is available
  *   TILE_CFG entities (screen 2)        - polled every TILE_POLL_MS while screen 2 is shown
  *
+ * Battery: voltage on BATT_PIN (GPIO14, 1:2 divider; POWER_EN must be on while measuring), averaged,
+ *          shown top-right on both screens, reported to HA as sensor.ha_display_battery every 5 min.
+ *
  * Touch (GT911): icon -> switch screen; screen 1 elsewhere -> fetch HA data now + full redraw;
  *                screen 2 tile -> toggle entity.
  *
@@ -85,6 +88,12 @@ static const TileCfg TILE_CFG[] = {
     {"light.light_garage_entrance_sonoff_light", "Światło garaż"},
 };
 
+// Battery
+static const char *ENTITY_BATTERY = "sensor.ha_display_battery";   // created/updated by this device via REST API
+static const unsigned long BATT_READ_MS   = 60UL * 1000UL;        // measure every minute
+static const unsigned long BATT_REPORT_MS = 5UL * 60UL * 1000UL;  // report to HA every 5 min
+static const int BATT_LOW_PCT             = 15;                   // warning threshold
+
 static const char *TZ_INFO = "CET-1CEST,M3.5.0,M10.5.0/3";      // Europe/Warsaw
 static const char *NTP_1   = "pool.ntp.org";
 static const char *NTP_2   = "time.google.com";
@@ -133,6 +142,13 @@ static Field fields[F_COUNT] = {
 #define SEP_Y 230
 #define SEP_W 912
 #define SEP_H 2
+
+// Battery indicator (left of the screen switch icon): text + battery symbol
+static const Rect_t BATT_AREA = {680, 8, 196, 44};
+#define BATT_ICON_X 828
+#define BATT_ICON_Y 18
+#define BATT_ICON_W 42
+#define BATT_ICON_H 24
 
 // Screen switch icon (top-right) - also the tap zone, with a margin
 static const Rect_t NAV_ICON = {884, 12, 52, 52};
@@ -184,6 +200,12 @@ static unsigned long lastTilePoll = 0;
 static unsigned long tilePollDelay = 0;
 
 static Screen screen = SCREEN_INFO;
+
+static float battVolt = -1;          // smoothed battery voltage, -1 = not measured yet
+static int battPct = -1;             // percent shown on screen, -1 = unknown
+static bool battDirty = false;
+static unsigned long lastBattRead = 0;
+static unsigned long lastBattReport = 0;
 static unsigned long lastInteractionMs = 0;
 
 static TouchDrvGT911 touch;
@@ -363,15 +385,83 @@ static void markTilesDirty()
     for (int i = 0; i < TILE_COUNT; i++) tiles[i].dirty = true;
 }
 
+// ---------- Battery ----------
+// Li-ion discharge curve (open circuit, approx.): voltage -> percent
+static int voltageToPercent(float v)
+{
+    static const float V[] = {3.30f, 3.50f, 3.60f, 3.70f, 3.80f, 3.90f, 4.00f, 4.10f, 4.20f};
+    static const int   P[] = {0,     5,     12,    28,    45,    62,    78,    90,    100};
+    if (v <= V[0]) return 0;
+    for (int i = 1; i < 9; i++) {
+        if (v <= V[i]) return P[i - 1] + (int)((v - V[i - 1]) / (V[i] - V[i - 1]) * (P[i] - P[i - 1]) + 0.5f);
+    }
+    return 100;
+}
+
+// Returns the battery voltage in V, or -1 when the reading is invalid
+static float readBatteryVoltage()
+{
+    epd_poweron();                       // POWER_EN must be on for the battery divider
+    delay(10);
+    uint32_t sum = 0;
+    int n = 0;
+    for (int i = 0; i < 8; i++) {
+        uint32_t mv = analogReadMilliVolts(BATT_PIN);
+        if (mv > 500) { sum += mv; n++; }   // ADC2 may return 0 while WiFi is busy - skip those
+        delay(2);
+    }
+    epd_poweroff();
+    if (!n) return -1;
+    return (float)sum / n * 2.0f / 1000.0f;   // 1:2 divider
+}
+
+static void updateBattery()
+{
+    lastBattRead = millis();
+    float v = readBatteryVoltage();
+    if (v < 0) return;
+    battVolt = (battVolt < 0) ? v : battVolt * 0.7f + v * 0.3f;   // smooth WiFi load dips
+    int pct = voltageToPercent(battVolt);
+    // redraw only on a real change (avoids e-paper flicker on +-1% noise)
+    if (battPct < 0 || abs(pct - battPct) >= 2 || (pct <= BATT_LOW_PCT) != (battPct <= BATT_LOW_PCT)) {
+        battPct = pct;
+        battDirty = true;
+    }
+    Serial.printf("[Batt] %.2f V (avg %.2f V) -> %d%%\n", v, battVolt, pct);
+}
+
+static void drawBattery(bool clearFirst)
+{
+    if (clearFirst) epd_clear_area(BATT_AREA);
+    battDirty = false;
+    if (battPct < 0) return;
+
+    bool low = battPct <= BATT_LOW_PCT;
+    // symbol: outline + tip + fill proportional to the charge
+    Rect_t body = {BATT_ICON_X, BATT_ICON_Y, BATT_ICON_W, BATT_ICON_H};
+    frameRect(body, 2);
+    fillRect(BATT_ICON_X + BATT_ICON_W, BATT_ICON_Y + 7, 4, BATT_ICON_H - 14, 0);
+    int32_t innerW = BATT_ICON_W - 8;
+    int32_t fillW = (innerW * battPct / 100) & ~1;               // even width (2 px per byte)
+    if (battPct > 0 && fillW < 2) fillW = 2;
+    if (fillW > 0) fillRect(BATT_ICON_X + 4, BATT_ICON_Y + 4, fillW, BATT_ICON_H - 8, low ? 0 : 4);
+
+    String t = String(battPct) + "%";
+    const GFXfont *f = low ? &PlSansBold : &PlSans;
+    drawText(f, t, BATT_ICON_X - 10 - textWidth(f, t), BATT_ICON_Y + 20, false);
+}
+
 // Draw only what changed on the current screen (partial refresh)
 static void drawDirty()
 {
     bool any = false;
     if (screen == SCREEN_INFO) for (int i = 0; i < F_COUNT; i++) any |= fields[i].dirty;
     else for (int i = 0; i < TILE_COUNT; i++) any |= tiles[i].dirty;
+    any |= battDirty;
     if (!any) return;
 
     epd_poweron();
+    if (battDirty) drawBattery(true);
     if (screen == SCREEN_INFO) {
         for (int i = 0; i < F_COUNT; i++) if (fields[i].dirty) drawField(fields[i]);
     } else {
@@ -394,6 +484,7 @@ static void drawFull()
         for (int i = 0; i < TILE_COUNT; i++) drawTile(i, false);
     }
     drawNavIcon();
+    drawBattery(false);
     epd_poweroff();
 }
 
@@ -535,7 +626,7 @@ static bool haRequest(const char *method, const String &path, const String &body
 
     int code = (strcmp(method, "POST") == 0) ? http.POST(body) : http.GET();
     esp_task_wdt_reset();
-    if (code != HTTP_CODE_OK) {
+    if (code < 200 || code > 299) {
         http.end();
         if (code < 0) {
             err = "brak połączenia";
@@ -632,6 +723,22 @@ static void toggleTile(int i)
     t.dirty = true;
     lastTilePoll = millis();
     tilePollDelay = 1500;
+}
+
+// Publish the battery state to HA (creates/updates sensor.ha_display_battery)
+static void reportBattery()
+{
+    lastBattReport = millis();
+    if (battPct < 0 || WiFi.status() != WL_CONNECTED || failSinceMs) return;
+    char body[256];
+    snprintf(body, sizeof(body),
+             "{\"state\":%d,\"attributes\":{\"unit_of_measurement\":\"%%\",\"device_class\":\"battery\","
+             "\"state_class\":\"measurement\",\"voltage\":%.2f,\"friendly_name\":\"HA Display bateria\"}}",
+             battPct, battVolt);
+    String payload, err;
+    bool connErr;
+    if (!haRequest("POST", String("/api/states/") + ENTITY_BATTERY, body, payload, err, connErr))
+        Serial.printf("[Batt] report failed: %s\n", err.c_str());
 }
 
 static int tileAt(int16_t x, int16_t y)
@@ -799,6 +906,7 @@ static void updateStatusAndStaleness()
     } else {
         status = String("Aktualizacja ") + (dataTime.length() ? dataTime : String("OK")) + "  ·  WiFi " + WiFi.RSSI() + " dBm";
     }
+    if (battPct >= 0 && battPct <= BATT_LOW_PCT) status = String("Słaba bateria!  ·  ") + status;
     setField(F_STATUS, status);
 }
 
@@ -875,7 +983,9 @@ void setup()
     touchOk = initTouch();
 
     if (WiFi.status() != WL_CONNECTED) wifiLostSinceMs = millis();
+    updateBattery();
     doFetch();
+    reportBattery();
     drawFull();
 }
 
@@ -939,6 +1049,14 @@ void loop()
             for (int i = 0; i < TILE_COUNT; i++) setTileState(i, tiles[i].state, true);
         }
     }
+
+    // Battery
+    if (now - lastBattRead >= BATT_READ_MS) {
+        int before = battPct;
+        updateBattery();
+        if ((before <= BATT_LOW_PCT) != (battPct <= BATT_LOW_PCT)) updateStatusAndStaleness();
+    }
+    if (now - lastBattReport >= BATT_REPORT_MS) reportBattery();
 
     if (now - lastFetchAttempt >= nextFetchDelay) {
         if (WiFi.status() == WL_CONNECTED) {
